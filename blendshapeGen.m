@@ -1,7 +1,8 @@
 %% driver for generating a set of blend shapes from
 % a template set: {A0, A1, ..., An}
 % a target mesh: B0
-% a set of training poses: {S1, S2, ..., Sm}
+% a set of training poses: {S1, S2, ..., Sm} each of which is a set of
+% points
 
 close all;
 clear all;
@@ -20,7 +21,13 @@ nposes = 19; % 20 in total (0..19), use 5 for testing
 A = cell(nshapes+1, 1);
 B = cell(nshapes+1, 1);
 B_ref = cell(nshapes+1, 1);
-S = cell(nposes, 1);
+S0 = cell(nposes, 1);   % ground truth training meshes
+S = cell(nposes, 1);    % meshes reconstructed from point clouds
+P = cell(nposes, 1);    % point clouds
+
+% load the landmarks
+landmarks = load('landmarks.mat');
+landmarks = landmarks.landmarks + 1;
 
 parfor i=1:nshapes+1
     A{i} = triangulateMesh(loadMesh([A_path, 'shape_', num2str(i-1), '.obj']));
@@ -31,10 +38,30 @@ B{1} = B_ref{1};
 A0 = A{1};
 B0 = B{1};
 
+if 0
+    close all;
+    for i=1:nshapes
+        figure;showMesh(A{i}, ['A_', num2str(i)]);
+    end
+end
+
+if 0
+    close all;
+    for i=1:nshapes
+        figure;showMesh(B_ref{i}, ['Bref_', num2str(i)]);
+    end
+end
+
 stationary_indices = find(B{1}.vertices(:,3)<-0.45);
 
 parfor i=1:nposes
-    S{i} = triangulateMesh(loadMesh([S_path, 'pose_', num2str(i), '.obj']));
+    S0{i} = triangulateMesh(loadMesh([S_path, 'pose_', num2str(i), '.obj']));
+end
+if 0
+    close all;
+    for i=1:nposes
+        figure;showMesh(S0{i}, ['S0_', num2str(i)]);
+    end
 end
 tloading = toc;
 fprintf('meshes loaded in %f seconds...\n', tloading);
@@ -50,20 +77,47 @@ if synthesizeTrainingPoses
 	alpha_ref = cell(nposes, 1);
 	parfor j=1:nposes
 		fprintf('estimating for pose %d ...', j);
-		alpha_ref{j} = estimateWeights(S{j}, B0, dB_ref, zeros(1, nshapes), 10, true);
+		alpha_ref{j} = estimateWeights(S0{j}, B0, dB_ref, zeros(1, nshapes), zeros(1, nshapes), 0.0, 10, true);
 	end
 
 	T = cell(nposes, 1);
 	parfor i=1:nposes
-		Ti = B{1};
+		Ti = B0;
 		for j=1:nshapes
 			Ti.vertices = Ti.vertices + alpha_ref{i}(j) * dB_ref{j};
 		end
 		Ti = alignMesh(Ti, B0, stationary_indices);		
 		T{i} = Ti;
-	end
+    end
+    if 0
+        close all;
+        for i=1:nposes
+            figure;showMesh(T{i}, ['T_', num2str(i)]);
+        end
+    end
 	% replace the training poses with T
-	S = T;
+	S0 = T;
+end
+
+% create point clouds from the training poses
+fprintf('sampling point clouds ...\n');
+nsamplepoints = 16384;
+parfor i=1:nposes
+    P{i} = samplePointsFromMesh(S0{i}, nsamplepoints, -0.25);
+end
+fprintf('done\n');
+
+% use laplacian deformation to create an initial set of training mesh,
+% which is used for estimating the initial set of blendshape weights
+parfor i=1:nposes
+    S{i} = laplacianDeformation(B0, landmarks, S0{i}.vertices(landmarks,:), P{i});
+end
+S_init = S;
+if 1
+    close all;
+    for i=1:nposes
+        figure;showMeshError(S0{i}, S{i}, ['Error ', num2str(i)]);
+    end
 end
 
 %% transfer the deformation to get initial set of blendshapes
@@ -75,7 +129,8 @@ parfor j=1:nfaces
     B0grad{j} = triangleGradient(B0, j);
 end
 
-B_init = cell(nshape+1, 1);
+B_init = cell(nshapes+1, 1);
+B_init{1} = B0;
 parfor i=2:nshapes+1
     fprintf('transferring mesh %d ...\n', i);
     B_init{i} = deformationTransfer4(A0, A0grad, B0, B0grad, A{i}, stationary_indices);
@@ -88,31 +143,6 @@ parfor i=2:nshapes+1
     savefig(['init_overlay_', num2str(i), '.fig']);
 end
 B = B_init;
-
-% compute deformation gradients for S
-Sgrad = cell(nfaces, 1);
-parfor j=1:nfaces
-    Smat = zeros(nposes, 9);
-    for i=1:nposes
-        Sij = triangleGradient(S{i}, j);
-        Smat(i,:) = reshape(Sij, 1, 9);
-    end
-    Sgrad{j} = Smat;
-end
-
-% compute delta shapes
-dB = cell(nshapes, 1);
-for i=1:nshapes
-    dB{i} = B{i+1}.vertices - B0.vertices;
-end
-
-%% estimate initial blendshape parameters
-alpha_init = cell(nposes, 1);
-parfor j=1:nposes
-    fprintf('estimating for pose %d ...', j);
-    alpha_init{j} = estimateWeights(S{j}, B0, dB, zeros(1, nshapes), 0.0, 5, true);
-end
-alpha = alpha_init;
 
 %% compute prior
 disp('computing prior...');
@@ -151,78 +181,139 @@ parfor i=1:nshapes
 end
 disp('done.');
 
-B = B_init;
-alpha = alpha_init;
-%% refine blendshapes as well as blendshape weights
-converged = false;
-ALPHA_THRES = 1e-6;
-B_THRES = 1e-6;
-beta_max = 0.5; beta_min = 0.1;
-gamma_max = 0.01; gamma_min = 0.01;
-eta_max = 10.0; eta_min = 1.0;
-iters = 0; maxIters = 10;
-B_error = zeros(maxIters, nshapes);
-S_error = zeros(maxIters, nposes);
-while ~converged && iters < maxIters
-    fprintf('iteration %d ...\n', iters);
-    converged = true;
-    iters = iters + 1;
-    
-    % refine blendshapes
-    beta = sqrt(iters/maxIters) * (beta_min - beta_max) + beta_max;
-    gamma = gamma_max + iters/maxIters*(gamma_min-gamma_max);
-    eta = eta_max + iters/maxIters*(eta_min-eta_max);
-    B_new = refineBlendShapes(S, Sgrad, B, alpha, beta, gamma, prior, w_prior, stationary_indices);
-    B_norm = zeros(1, nshapes);
-    for i=1:nshapes
-        B_norm(i) = norm(B{i+1}.vertices-B_new{i}, 2);        
-        B{i+1}.vertices = B_new{i};
-        B_error(iters, i) = sqrt(max(sum((B{i+1}.vertices-B_ref{i+1}.vertices).^2, 2)));
-        B{i+1} = alignMesh(B{i+1}, B{1}, stationary_indices);
-    end
-    fprintf('max(B_error) = %.6f\n', max(B_error(iters, :)));
-    converged = converged & (max(B_norm) < B_THRES);
-    
-    if 0
-        close all;
-        % compare the new blendshapes with the reference
-        for i=1:nshapes
-            figure;showMeshError(B{i+1}, B_ref{i+1}, ['error ', num2str(i)]);
-            savefig(['error_', num2str(i), '.fig']);close;
-            figure;showMeshOverlay(B{i+1}, B_ref{i+1}, ['overlay', num2str(i)]);
-            savefig(['overlay_', num2str(i), '.fig']);close;
-            figure;
-            subplot(1, 2, 1);showMeshError(B{i+1}, B_ref{i+1}, ['error ', num2str(i)]);
-            subplot(1, 2, 2);showMeshOverlay(B{i+1}, B_ref{i+1}, ['overlay ', num2str(i)]);
-        end
-    end
-    
-    % update delta shapes
-    for i=1:nshapes
-        dB{i} = B{i+1}.vertices - B0.vertices;
-    end
-    
-    % update weights
-    alpha_new = cell(nposes, 1);
-    parfor j=1:nposes
-        alpha_new{j} = estimateWeights(S{j}, B0, dB, alpha{j}, alpha_ref{j}, eta, 2);
-        %alpha_new{j} = estimateWeights(S{j}, B0, dB, zeros(1, nshapes), 5);
-    end
-    alpha_norm = norm(cell2mat(alpha) - cell2mat(alpha_new));
-    disp(alpha_norm);
-    alpha = alpha_new;
-    converged = converged & (alpha_norm < ALPHA_THRES);
-    
-    for i=1:nposes
-        Ti = B0;
-        for j=1:nshapes
-            Ti.vertices = Ti.vertices + alpha{i}(j) * dB{j};
-        end
-        %Ti = alignMesh(Ti, S{i});
-        S_error(iters, i) = sqrt(max(sum((Ti.vertices-S{i}.vertices).^2, 2)));
-    end
-    fprintf('Emax = %.6f\tEmean = %.6f\n', max(S_error(iters,:)), mean(S_error(iters,:)));
+% compute delta shapes
+dB = cell(nshapes, 1);
+for i=1:nshapes
+    dB{i} = B{i+1}.vertices - B0.vertices;
 end
+
+%% estimate initial blendshape parameters
+alpha_init = cell(nposes, 1);
+parfor j=1:nposes
+    fprintf('estimating for pose %d ...', j);
+    alpha_init{j} = estimateWeights(S{j}, B0, dB, zeros(1, nshapes), 0.0, 5, true);
+end
+
+% initialization done
+return;
+
+B = B_init;
+S = S_init;
+alpha = alpha_init;
+
+% iters_outerloop = 1;
+% MAXITERS_OUTERLOOP = 5;
+% while iters_outerloop < MAXITERS_OUTERLOOP
+%     fprintf('outer loop iteration %d\n', iters_outerloop);
+%     iters_outerloop = iters_outerloop + 1;
+%     % compute deformation gradients for S
+%     Sgrad = cell(nfaces, 1);
+%     parfor j=1:nfaces
+%         Smat = zeros(nposes, 9);
+%         for i=1:nposes
+%             Sij = triangleGradient(S{i}, j);
+%             Smat(i,:) = reshape(Sij, 1, 9);
+%         end
+%         Sgrad{j} = Smat;
+%     end
+    
+    %% refine blendshapes as well as blendshape weights
+    converged = false;
+    ALPHA_THRES = 1e-6;
+    B_THRES = 1e-6;
+    beta_max = 0.5; beta_min = 0.1;
+    gamma_max = 0.01; gamma_min = 0.01;
+    eta_max = 10.0; eta_min = 1.0;
+    iters = 0; maxIters = 10;
+    B_error = zeros(maxIters, nshapes);
+    S_error = zeros(maxIters, nposes);
+    while ~converged && iters < maxIters
+        fprintf('iteration %d ...\n', iters);
+        converged = true;
+        iters = iters + 1;
+        
+        % refine blendshapes
+        beta = sqrt(iters/maxIters) * (beta_min - beta_max) + beta_max;
+        gamma = gamma_max + iters/maxIters*(gamma_min-gamma_max);
+        eta = eta_max + iters/maxIters*(eta_min-eta_max);
+        B_new = refineBlendShapes(S, Sgrad, B, alpha, beta, gamma, prior, w_prior, stationary_indices);
+        B_norm = zeros(1, nshapes);
+        for i=1:nshapes
+            B_norm(i) = norm(B{i+1}.vertices-B_new{i}, 2);
+            B{i+1}.vertices = B_new{i};
+            B_error(iters, i) = sqrt(max(sum((B{i+1}.vertices-B_ref{i+1}.vertices).^2, 2)));
+            B{i+1} = alignMesh(B{i+1}, B{1}, stationary_indices);
+        end
+        fprintf('max(B_error) = %.6f\n', max(B_error(iters, :)));
+        converged = converged & (max(B_norm) < B_THRES);
+        
+        if 0
+            close all;
+            % compare the new blendshapes with the reference
+            for i=1:nshapes
+                figure;showMeshError(B{i+1}, B_ref{i+1}, ['error ', num2str(i)]);
+                savefig(['error_', num2str(i), '.fig']);close;
+                figure;showMeshOverlay(B{i+1}, B_ref{i+1}, ['overlay', num2str(i)]);
+                savefig(['overlay_', num2str(i), '.fig']);close;
+                figure;
+                subplot(1, 2, 1);showMeshError(B{i+1}, B_ref{i+1}, ['error ', num2str(i)]);
+                subplot(1, 2, 2);showMeshOverlay(B{i+1}, B_ref{i+1}, ['overlay ', num2str(i)]);
+            end
+        end
+        
+        % update delta shapes
+        for i=1:nshapes
+            dB{i} = B{i+1}.vertices - B0.vertices;
+        end
+        
+        % update weights
+        alpha_new = cell(nposes, 1);
+        parfor j=1:nposes
+            alpha_new{j} = estimateWeights(S{j}, B0, dB, alpha{j}, alpha_ref{j}, eta, 2);
+            %alpha_new{j} = estimateWeights(S{j}, B0, dB, zeros(1, nshapes), 5);
+        end
+        alpha_norm = norm(cell2mat(alpha) - cell2mat(alpha_new));
+        disp(alpha_norm);
+        alpha = alpha_new;
+        converged = converged & (alpha_norm < ALPHA_THRES);
+        
+        for i=1:nposes
+            Ti = B0;
+            for j=1:nshapes
+                Ti.vertices = Ti.vertices + alpha{i}(j) * dB{j};
+            end
+            %Ti = alignMesh(Ti, S0{i});
+            S_error(iters, i) = sqrt(max(sum((Ti.vertices-S0{i}.vertices).^2, 2)));
+            
+            % update the reconstructed mesh
+            S{i} = Ti;
+        end
+        fprintf('Emax = %.6f\tEmean = %.6f\n', max(S_error(iters,:)), mean(S_error(iters,:)));
+        
+        
+        % The reconstructed mesh are updated using the new set of blendshape
+        % weights, need to use laplacian deformation to refine them again
+        parfor i=1:nposes
+            S{i} = laplacianDeformation(S{i}, landmarks, S0{i}.vertices(landmarks,:), P{i}, 4);
+        end
+        % compute deformation gradients for S
+        Sgrad = cell(nfaces, 1);
+        parfor j=1:nfaces
+            Smat = zeros(nposes, 9);
+            for i=1:nposes
+                Sij = triangleGradient(S{i}, j);
+                Smat(i,:) = reshape(Sij, 1, 9);
+            end
+            Sgrad{j} = Smat;
+        end
+    end
+    
+%     % The reconstructed mesh are updated using the new set of blendshape
+%     % weights, need to use laplacian deformation to refine them again
+%     parfor i=1:nposes
+%         S{i} = laplacianDeformation(S{i}, landmarks, S0{i}.vertices(landmarks,:), P{i});
+%     end    
+% end
 
 plotLines(S_error, 'iteration', 'S error', 'pose id', 'error', [1.0, ones(1,8)*0.5, 1.0]);
 plotLines(B_error, 'iteration', 'B error', 'blendshape id', 'error', [1.0, ones(1,8)*0.5, 1.0]);
@@ -238,6 +329,7 @@ return;
 
 
 % the error between initial blendshapes with the reference
+close all;
 for i=1:nshapes
     figure;
     subplot(1, 2, 1);showMeshOverlay(B_init{i+1}, B_ref{i+1}, ['overlay', num2str(i)]);
@@ -248,6 +340,7 @@ for i=1:nshapes
 end
 
 % the error between the refined blendshapes
+close all;
 for i=1:nshapes
     figure;
     subplot(1, 2, 1);showMeshOverlay(B{i+1}, B_ref{i+1}, ['overlay', num2str(i)]);
