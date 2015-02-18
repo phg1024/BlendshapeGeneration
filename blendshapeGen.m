@@ -206,16 +206,16 @@ alpha = alpha_init;
 % while iters_outerloop < MAXITERS_OUTERLOOP
 %     fprintf('outer loop iteration %d\n', iters_outerloop);
 %     iters_outerloop = iters_outerloop + 1;
-%     % compute deformation gradients for S
-%     Sgrad = cell(nfaces, 1);
-%     parfor j=1:nfaces
-%         Smat = zeros(nposes, 9);
-%         for i=1:nposes
-%             Sij = triangleGradient(S{i}, j);
-%             Smat(i,:) = reshape(Sij, 1, 9);
-%         end
-%         Sgrad{j} = Smat;
-%     end
+    % compute deformation gradients for S
+    Sgrad = cell(nfaces, 1);
+    parfor j=1:nfaces
+        Smat = zeros(nposes, 9);
+        for i=1:nposes
+            Sij = triangleGradient(S{i}, j);
+            Smat(i,:) = reshape(Sij, 1, 9);
+        end
+        Sgrad{j} = Smat;
+    end
     
     %% refine blendshapes as well as blendshape weights
     converged = false;
@@ -294,7 +294,7 @@ alpha = alpha_init;
         % The reconstructed mesh are updated using the new set of blendshape
         % weights, need to use laplacian deformation to refine them again
         parfor i=1:nposes
-            S{i} = laplacianDeformation(S{i}, landmarks, S0{i}.vertices(landmarks,:), P{i}, 4);
+            S{i} = laplacianDeformation(S{i}, landmarks, S0{i}.vertices(landmarks,:), P{i}, 1);
         end
         % compute deformation gradients for S
         Sgrad = cell(nfaces, 1);
