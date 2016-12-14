@@ -11,9 +11,9 @@ maxNumCompThreads(6);
 
 %% load the meshes
 tic;
-A_path = 'C:\Users\Peihong\Desktop\Data\FaceWarehouse_Data_0\Tester_1\Blendshape\';
-B_path = 'C:\Users\Peihong\Desktop\Data\FaceWarehouse_Data_0\Tester_106\Blendshape\';
-S_path = 'C:\Users\Peihong\Desktop\Data\FaceWarehouse_Data_0\Tester_106\TrainingPose\';
+A_path = './Data/Tester_1/Blendshape/';
+B_path = './Data/Tester_106/Blendshape/';
+S_path = './Data/Tester_106/TrainingPose/';
 
 nshapes = 46; % 46 in total (1..46), use 10 for testing
 nposes = 19; % 20 in total (0..19), use 5 for testing
@@ -107,6 +107,7 @@ parfor i=1:nposes
 end
 fprintf('done\n');
 
+addpath ./LaplacianDeformation/
 % use laplacian deformation to create an initial set of training mesh,
 % which is used for estimating the initial set of blendshape weights
 parfor i=1:nposes

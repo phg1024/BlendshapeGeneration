@@ -6,7 +6,7 @@ if nargin < 8
     vis = false;
 end
 
-addpath levmar-2.6\matlab\;
+addpath ./levmar-2.6/matlab/;
 nshapes = size(dB, 1);
 
 % initial guess
