@@ -1,0 +1,33 @@
+﻿Build started 12/7/2013 3:30:34 PM.
+     1>Project "C:\Users\PhG\Desktop\Code\Libraries\levmar-2.6\include\levmar.vcxproj" on node 2 (Rebuild target(s)).
+     1>C:\Program Files (x86)\MSBuild\Microsoft.Cpp\v4.0\V110\Microsoft.CppBuild.targets(346,5): warning MSB8004: Output Directory does not end with a trailing slash.  This build instance will add the slash as it is required to allow proper evaluation of the Output Directory.
+     1>ClCompile:
+         C:\Program Files (x86)\Microsoft Visual Studio 11.0\VC\bin\CL.exe /c /Zi /nologo /W3 /WX- /Od /Oy- /D WIN32 /D _DEBUG /D _LIB /Gm /EHsc /RTC1 /MDd /GS /Zc:wchar_t /Zc:forScope /Fo"Debug\\" /Fd"Debug\vc110.pdb" /Gd /TC /analyze- /errorReport:prompt Axb.c lm.c lmbc.c lmblec.c lmbleic.c lmdemo.c lmlec.c misc.c
+         misc.c
+         lmlec.c
+         lmdemo.c
+         lmbleic.c
+         lmblec.c
+         lmbc.c
+         lm.c
+         Axb.c
+         Generating Code...
+       Lib:
+         C:\Program Files (x86)\Microsoft Visual Studio 11.0\VC\bin\Lib.exe /OUT:"..\lib\levmar32d.lib" mkl_intel_c_dll.lib mkl_intel_thread_dll.lib mkl_core_dll.lib libiomp5md.lib /NOLOGO Debug\Axb.obj
+         Debug\lm.obj
+         Debug\lmbc.obj
+         Debug\lmblec.obj
+         Debug\lmbleic.obj
+         Debug\lmdemo.obj
+         Debug\lmlec.obj
+         Debug\misc.obj
+     1>mkl_intel_thread_dll.lib(mkl_intel_thread.dll) : warning LNK4006: __NULL_IMPORT_DESCRIPTOR already defined in mkl_intel_c_dll.lib(libimalloc.dll); second definition ignored
+     1>mkl_intel_thread_dll.lib(mkl_intel_thread.dll) : warning LNK4221: This object file does not define any previously undefined public symbols, so it will not be used by any link operation that consumes this library
+     1>libiomp5md.lib(libiomp5md.dll) : warning LNK4006: __NULL_IMPORT_DESCRIPTOR already defined in mkl_intel_c_dll.lib(libimalloc.dll); second definition ignored
+     1>libiomp5md.lib(libiomp5md.dll) : warning LNK4221: This object file does not define any previously undefined public symbols, so it will not be used by any link operation that consumes this library
+         levmar.vcxproj -> C:\Users\PhG\Desktop\Code\Libraries\levmar-2.6\include\..\lib\levmar32d.lib
+     1>Done Building Project "C:\Users\PhG\Desktop\Code\Libraries\levmar-2.6\include\levmar.vcxproj" (Rebuild target(s)).
+
+Build succeeded.
+
+Time Elapsed 00:00:02.25
